@@ -28,6 +28,7 @@ import (
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
 	"gopkg.in/gcfg.v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
@@ -46,13 +47,20 @@ type CSConfig struct {
 		ProjectID   string `gcfg:"project-id"`
 		Zone        string `gcfg:"zone"`
 	}
+	LoadBalancer struct {
+		// LoadBalancerClass identifies which LoadBalancer services this controller should handle.
+		// If empty, this controller is the default and handles services without a loadBalancerClass.
+		// If set (e.g., "cloudstack"), only services with matching loadBalancerClass are handled.
+		LoadBalancerClass string `gcfg:"load-balancer-class"`
+	}
 }
 
 // CSCloud is an implementation of Interface for CloudStack.
 type CSCloud struct {
-	client    *cloudstack.CloudStackClient
-	projectID string // If non-"", all resources will be created within this project
-	zone      string
+	client            *cloudstack.CloudStackClient
+	projectID         string // If non-"", all resources will be created within this project
+	zone              string
+	loadBalancerClass string // LoadBalancer class this controller handles (empty = default controller)
 }
 
 func init() {
@@ -82,9 +90,18 @@ func readConfig(config io.Reader) (*CSConfig, error) {
 
 // newCSCloud creates a new instance of CSCloud.
 func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
+	// Determine loadBalancerClass from flag (via env var) or config file
+	// Priority: command-line flag > config file
+	loadBalancerClass := cfg.LoadBalancer.LoadBalancerClass
+	if envClass := os.Getenv("CLOUDSTACK_LOAD_BALANCER_CLASS"); envClass != "" {
+		loadBalancerClass = envClass
+		klog.V(2).Infof("Using loadBalancerClass from command-line flag: %q", loadBalancerClass)
+	}
+
 	cs := &CSCloud{
-		projectID: cfg.Global.ProjectID,
-		zone:      cfg.Global.Zone,
+		projectID:         cfg.Global.ProjectID,
+		zone:              cfg.Global.Zone,
+		loadBalancerClass: loadBalancerClass,
 	}
 
 	if cfg.Global.APIURL != "" && cfg.Global.APIKey != "" && cfg.Global.SecretKey != "" {
@@ -93,6 +110,20 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 
 	if cs.client == nil {
 		return nil, errors.New("no cloud provider config given")
+	}
+
+	// AmmoSquared fork identification
+	klog.Infof("CloudStack CCM AmmoSquared Fork")
+	klog.Infof("  Version: v1.2.0-ammosq (based on Apache CloudStack CCM v1.1.1)")
+	klog.Infof("  Repository: https://github.com/ammosquared/cloudstack-kubernetes-provider")
+	klog.Infof("  Features: loadBalancerClass support")
+	klog.Infof("  Upstream: https://github.com/apache/cloudstack-kubernetes-provider")
+
+	// Log LoadBalancer class configuration
+	if cs.loadBalancerClass == "" {
+		klog.Infof("LoadBalancer: Acting as DEFAULT controller (handles services without loadBalancerClass)")
+	} else {
+		klog.Infof("LoadBalancer: Acting as SPECIFIC controller for class: %q", cs.loadBalancerClass)
 	}
 
 	return cs, nil
@@ -109,6 +140,50 @@ func (cs *CSCloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
 	}
 
 	return cs, true
+}
+
+// shouldHandleService determines if this controller should handle the given service
+// based on loadBalancerClass filtering.
+//
+// Filtering logic (per KEP-1959):
+// - If service.spec.loadBalancerClass is NOT set:
+//   - Only handle if this controller is the default (cs.loadBalancerClass == "")
+//
+// - If service.spec.loadBalancerClass IS set:
+//   - Only handle if it matches cs.loadBalancerClass
+//
+// This prevents multiple LoadBalancer controllers from racing to provision the same service.
+func (cs *CSCloud) shouldHandleService(service *corev1.Service) bool {
+	serviceClass := ""
+	if service.Spec.LoadBalancerClass != nil {
+		serviceClass = *service.Spec.LoadBalancerClass
+	}
+
+	isDefaultController := cs.loadBalancerClass == ""
+	hasServiceClass := serviceClass != ""
+
+	// Case 1: Service has NO loadBalancerClass - only default controller handles it
+	if !hasServiceClass {
+		if isDefaultController {
+			klog.V(4).Infof("Service %s/%s: NO loadBalancerClass, this IS default controller → HANDLING",
+				service.Namespace, service.Name)
+			return true
+		}
+		klog.V(4).Infof("Service %s/%s: NO loadBalancerClass (wants default), this is specific controller for %q → IGNORING",
+			service.Namespace, service.Name, cs.loadBalancerClass)
+		return false
+	}
+
+	// Case 2: Service HAS loadBalancerClass - only matching controller handles it
+	if serviceClass == cs.loadBalancerClass {
+		klog.V(4).Infof("Service %s/%s: loadBalancerClass=%q MATCHES controller class %q → HANDLING",
+			service.Namespace, service.Name, serviceClass, cs.loadBalancerClass)
+		return true
+	}
+
+	klog.V(4).Infof("Service %s/%s: loadBalancerClass=%q DOES NOT MATCH controller class %q → IGNORING",
+		service.Namespace, service.Name, serviceClass, cs.loadBalancerClass)
+	return false
 }
 
 // Instances returns an implementation of Instances for CloudStack.

@@ -63,6 +63,13 @@ type loadBalancer struct {
 func (cs *CSCloud) GetLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service) (*corev1.LoadBalancerStatus, bool, error) {
 	klog.V(4).Infof("GetLoadBalancer(%v, %v, %v)", clusterName, service.Namespace, service.Name)
 
+	// Check if this controller should handle this service based on loadBalancerClass
+	if !cs.shouldHandleService(service) {
+		klog.V(2).Infof("GetLoadBalancer: Ignoring service %s/%s due to loadBalancerClass mismatch",
+			service.Namespace, service.Name)
+		return nil, false, nil
+	}
+
 	// Get the load balancer details and existing rules.
 	lb, err := cs.getLoadBalancer(service)
 	if err != nil {
@@ -85,6 +92,13 @@ func (cs *CSCloud) GetLoadBalancer(ctx context.Context, clusterName string, serv
 // EnsureLoadBalancer creates a new load balancer, or updates the existing one. Returns the status of the balancer.
 func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service, nodes []*corev1.Node) (status *corev1.LoadBalancerStatus, err error) {
 	klog.V(4).Infof("EnsureLoadBalancer(%v, %v, %v, %v, %v, %v)", clusterName, service.Namespace, service.Name, service.Spec.LoadBalancerIP, service.Spec.Ports, nodes)
+
+	// Check if this controller should handle this service based on loadBalancerClass
+	if !cs.shouldHandleService(service) {
+		klog.V(2).Infof("EnsureLoadBalancer: Ignoring service %s/%s due to loadBalancerClass mismatch",
+			service.Namespace, service.Name)
+		return nil, cloudprovider.ImplementedElsewhere
+	}
 
 	if len(service.Spec.Ports) == 0 {
 		return nil, fmt.Errorf("requested load balancer with no ports")
@@ -240,6 +254,13 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service, nodes []*corev1.Node) error {
 	klog.V(4).Infof("UpdateLoadBalancer(%v, %v, %v, %v)", clusterName, service.Namespace, service.Name, nodes)
 
+	// Check if this controller should handle this service based on loadBalancerClass
+	if !cs.shouldHandleService(service) {
+		klog.V(2).Infof("UpdateLoadBalancer: Ignoring service %s/%s due to loadBalancerClass mismatch",
+			service.Namespace, service.Name)
+		return cloudprovider.ImplementedElsewhere
+	}
+
 	// Get the load balancer details and existing rules.
 	lb, err := cs.getLoadBalancer(service)
 	if err != nil {
@@ -303,6 +324,13 @@ func isNetworkACLSupported(services []cloudstack.NetworkServiceInternal) bool {
 // nil if the load balancer specified either didn't exist or was successfully deleted.
 func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName string, service *corev1.Service) error {
 	klog.V(4).Infof("EnsureLoadBalancerDeleted(%v, %v, %v)", clusterName, service.Namespace, service.Name)
+
+	// Check if this controller should handle this service based on loadBalancerClass
+	if !cs.shouldHandleService(service) {
+		klog.V(2).Infof("EnsureLoadBalancerDeleted: Ignoring service %s/%s due to loadBalancerClass mismatch",
+			service.Namespace, service.Name)
+		return nil
+	}
 
 	// Get the load balancer details and existing rules.
 	lb, err := cs.getLoadBalancer(service)

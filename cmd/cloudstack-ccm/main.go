@@ -21,6 +21,7 @@ package main
 
 import (
 	goflag "flag"
+	"os"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
@@ -38,6 +39,12 @@ import (
 	"github.com/spf13/pflag"
 
 	_ "github.com/apache/cloudstack-kubernetes-provider" // our cloud package
+)
+
+var (
+	loadBalancerClass = pflag.String("load-balancer-class", "",
+		"LoadBalancer class this controller handles. Empty string means default controller (handles services without loadBalancerClass). "+
+			"Set to a specific value (e.g., 'cloudstack') to only handle services with matching loadBalancerClass.")
 )
 
 func main() {
@@ -67,6 +74,13 @@ func main() {
 
 func cloudInitializer(config *config.CompletedConfig) cloudprovider.Interface {
 	cloudConfig := config.ComponentConfig.KubeCloudShared.CloudProvider
+
+	// Pass loadBalancerClass flag value to cloud provider via environment variable
+	// This allows the cloud provider to use the flag value without modifying its registration
+	if loadBalancerClass != nil && *loadBalancerClass != "" {
+		os.Setenv("CLOUDSTACK_LOAD_BALANCER_CLASS", *loadBalancerClass)
+		klog.Infof("Setting loadBalancerClass from flag: %q", *loadBalancerClass)
+	}
 
 	// initialize cloud provider with the cloud provider name and config file provided
 	cloud, err := cloudprovider.InitCloudProvider(cloudConfig.Name, cloudConfig.CloudConfigFile)
