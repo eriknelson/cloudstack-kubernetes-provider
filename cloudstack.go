@@ -43,7 +43,8 @@ import (
 )
 
 // ProviderName is the name of this cloud provider.
-const ProviderName = "external-cloudstack"
+// Must match CAPC's providerID prefix for CAPI Machine<->Node correlation.
+const ProviderName = "cloudstack"
 
 // CSConfig wraps the config for the CloudStack cloud provider.
 type CSConfig struct {
@@ -120,19 +121,27 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 }
 
 func (cs *CSCloud) getManagementServerVersion() (semver.Version, error) {
+	// Default to a conservative version (4.0.0) that triggers safe LB behavior.
+	// This ensures non-admin accounts that lack listManagementServersMetrics
+	// permission can still run the CCM with correct (if conservative) behavior.
+	defaultVersion := semver.Version{Major: 4, Minor: 0, Patch: 0}
+
 	msServersResp, err := cs.client.Management.ListManagementServersMetrics(cs.client.Management.NewListManagementServersMetricsParams())
 	if err != nil {
-		return semver.Version{}, err
+		klog.Warningf("failed to query management server version (may lack admin privileges): %v; defaulting to %s", err, defaultVersion)
+		return defaultVersion, nil
 	}
 	if msServersResp.Count == 0 {
-		return semver.Version{}, errors.New("no management servers found")
+		klog.Warningf("no management servers found; defaulting to version %s", defaultVersion)
+		return defaultVersion, nil
 	}
 	version := msServersResp.ManagementServersMetrics[0].Version
 	v, err := semver.ParseTolerant(strings.Join(strings.Split(version, ".")[0:3], "."))
 	if err != nil {
-		klog.Errorf("failed to parse management server version: %v", err)
-		return semver.Version{}, err
+		klog.Warningf("failed to parse management server version %q: %v; defaulting to %s", version, err, defaultVersion)
+		return defaultVersion, nil
 	}
+	klog.V(2).Infof("Detected CloudStack management server version: %s", v)
 	return v, nil
 }
 

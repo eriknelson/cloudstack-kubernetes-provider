@@ -216,13 +216,16 @@ func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *corev1.Node) (*cl
 }
 
 func (cs *CSCloud) getProviderIDFromInstanceID(instanceID string) string {
-	return fmt.Sprintf("%s://%s", cs.ProviderName(), instanceID)
+	// Format must match CAPC: cloudstack:///UUID (triple-slash)
+	return fmt.Sprintf("%s:///%s", cs.ProviderName(), instanceID)
 }
 
 func (cs *CSCloud) getInstanceIDFromProviderID(providerID string) string {
+	// Handle both cloudstack:///UUID and cloudstack://UUID formats
 	parts := strings.Split(providerID, "://")
 	if len(parts) == 1 {
 		return providerID
 	}
-	return parts[1]
+	// Strip leading slash if present (from triple-slash format)
+	return strings.TrimPrefix(parts[1], "/")
 }

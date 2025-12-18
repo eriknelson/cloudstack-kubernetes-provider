@@ -195,7 +195,7 @@ func TestGetManagementServerVersion(t *testing.T) {
 		}
 	})
 
-	t.Run("returns error when api call fails", func(t *testing.T) {
+	t.Run("returns default version when api call fails", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 
@@ -214,12 +214,17 @@ func TestGetManagementServerVersion(t *testing.T) {
 			},
 		}
 
-		if _, err := cs.getManagementServerVersion(); err == nil {
-			t.Fatalf("expected error, got nil")
+		version, err := cs.getManagementServerVersion()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		expected := semver.MustParse("4.0.0")
+		if !version.Equals(expected) {
+			t.Fatalf("version = %v, want %v", version, expected)
 		}
 	})
 
-	t.Run("returns error when no servers found", func(t *testing.T) {
+	t.Run("returns default version when no servers found", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 
@@ -241,12 +246,17 @@ func TestGetManagementServerVersion(t *testing.T) {
 			},
 		}
 
-		if _, err := cs.getManagementServerVersion(); err == nil {
-			t.Fatalf("expected error for zero management servers")
+		version, err := cs.getManagementServerVersion()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		expected := semver.MustParse("4.0.0")
+		if !version.Equals(expected) {
+			t.Fatalf("version = %v, want %v", version, expected)
 		}
 	})
 
-	t.Run("returns error when version cannot be parsed", func(t *testing.T) {
+	t.Run("returns default version when version cannot be parsed", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 
@@ -270,8 +280,13 @@ func TestGetManagementServerVersion(t *testing.T) {
 			},
 		}
 
-		if _, err := cs.getManagementServerVersion(); err == nil {
-			t.Fatalf("expected parse error")
+		version, err := cs.getManagementServerVersion()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		expected := semver.MustParse("4.0.0")
+		if !version.Equals(expected) {
+			t.Fatalf("version = %v, want %v", version, expected)
 		}
 	})
 }

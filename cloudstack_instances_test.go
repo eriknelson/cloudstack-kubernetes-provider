@@ -186,12 +186,12 @@ func TestGetProviderIDFromInstanceID(t *testing.T) {
 		{
 			name:       "valid instance ID",
 			instanceID: "vm-123",
-			want:       "external-cloudstack://vm-123",
+			want:       "cloudstack:///vm-123",
 		},
 		{
 			name:       "empty instance ID",
 			instanceID: "",
-			want:       "external-cloudstack://",
+			want:       "cloudstack:///",
 		},
 	}
 
@@ -214,8 +214,13 @@ func TestGetInstanceIDFromProviderID(t *testing.T) {
 		want       string
 	}{
 		{
-			name:       "full provider ID format",
-			providerID: "external-cloudstack://vm-123",
+			name:       "CAPC triple-slash format",
+			providerID: "cloudstack:///vm-123",
+			want:       "vm-123",
+		},
+		{
+			name:       "legacy double-slash format",
+			providerID: "cloudstack://vm-123",
 			want:       "vm-123",
 		},
 		{
